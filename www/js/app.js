@@ -1,4 +1,6 @@
-//global config goes here
+//Define Modules here first
+angular.module("omniFactories", ["omniConfig"]);
+angular.module("omniServices", ["omniConfig", "omniFactories"]);
 
 var app = angular.module('omniwallet', [
   'ngRoute',
@@ -6,7 +8,11 @@ var app = angular.module('omniwallet', [
   'ui.bootstrap.modal',
   'ngNumeraljs',
   'vr.filters.passwordStrength',
-  'ngIdle'
+  'ngIdle',
+  'reCAPTCHA',
+  'omniConfig',
+  'omniFactories',
+  'omniServices'
 ], function($routeProvider, $locationProvider, $httpProvider) {
 
   if (!$httpProvider.defaults.headers.get)
@@ -108,10 +114,18 @@ var app = angular.module('omniwallet', [
   $locationProvider.html5Mode(true).hashPrefix('!');
 });
 
-app.config(function($idleProvider, $keepaliveProvider) {
-  $idleProvider.idleDuration(config.idleDuration);
-  $idleProvider.warningDuration(config.idleWarningDuration);
+app.config(function($idleProvider, $keepaliveProvider, reCAPTCHAProvider, idleDuration, idleWarningDuration, reCaptchaKey) {
+  $idleProvider.idleDuration(idleDuration);
+  $idleProvider.warningDuration(idleWarningDuration);
   // $keepaliveProvider.interval(2);
+
+  // required: please use your own key :)
+  reCAPTCHAProvider.setPublicKey(reCaptchaKey);
+
+  // optional: gets passed into the Recaptcha.create call
+  reCAPTCHAProvider.setOptions({
+      theme: 'clean'
+  });
 })
 .run(function(userService, $location) {
   //Whitelist pages

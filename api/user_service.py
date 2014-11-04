@@ -15,22 +15,21 @@ from email.MIMEText import MIMEText
 from email.Utils import COMMASPACE, formatdate
 from email import Encoders
 from sqltools import *
-
-#For wallets and session store you can switch between disk and the database
-#Set to 1 to use local storage/file system, Set to 0 to use database
-LOCALDEVBYPASSDB=0
+from recaptcha.client import captcha
+import config 
 
 ACCOUNT_CREATION_DIFFICULTY = '0400'
 LOGIN_DIFFICULTY = '0400'
 
-SERVER_SECRET = 'SoSecret!'
-SESSION_SECRET = 'SuperSecretSessionStuff'
 data_dir_root = os.environ.get('DATADIR')
 
 store_dir = data_dir_root + '/sessions/'
 session_store = FilesystemStore(store_dir) # TODO: Need to roll this into a SessionInterface so multiple services can hit it easily
 
-email_domain = socket.gethostname()
+if config.DOMAIN is None:
+  email_domain = socket.gethostname()
+else:
+  email_domain = config.DOMAIN
 email_from = "noreply@"+str(email_domain)
 
 app = Flask(__name__)
@@ -41,12 +40,12 @@ app.debug = True
 def challenge():
   validate_uuid = UUID(request.args.get('uuid'))
   uuid = str(validate_uuid)
-  session = ws.hashlib.sha256(SESSION_SECRET + uuid).hexdigest()
-  salt = ws.hashlib.sha256(SERVER_SECRET + uuid).hexdigest()
+  session = ws.hashlib.sha256(config.SESSION_SECRET + uuid).hexdigest()
+  salt = ws.hashlib.sha256(config.SERVER_SECRET + uuid).hexdigest()
   pow_challenge = ws.gen_salt(32)
   challenge = ws.gen_salt(32)
 
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     session_challenge = session + "_challenge"
     session_pow_challenge = session + "_pow_challenge"
 
@@ -77,14 +76,28 @@ def challenge():
 def create():
   validate_uuid = UUID(request.form['uuid'])
   uuid = str(validate_uuid)
-  session = ws.hashlib.sha256(SESSION_SECRET + uuid).hexdigest()
+  session = ws.hashlib.sha256(config.SESSION_SECRET + uuid).hexdigest()
+
+  try:
+    recaptcha_challenge=request.form['recaptcha_challenge_field']
+    recaptcha_response=request.form['recaptcha_response_field']
+    recaptcha_configured = config.RECAPTCHA_PRIVATE is not None
+  except:
+    recaptcha_configured=False
+  ## validate reCaptcha
+  if recaptcha_configured: 
+    captcha_response = captcha.submit(recaptcha_challenge,recaptcha_response,config.RECAPTCHA_PRIVATE,request.remote_addr)
+
+    if not captcha_response.is_valid:
+      print 'reCaptcha not valid'
+      return jsonify({"status": "ERROR", "error":"InvalidCaptcha"})
 
   email = request.form['email'] if 'email' in request.form else None
   nonce = request.form['nonce']
   public_key = request.form['public_key'].encode('UTF-8')
   wallet = request.form['wallet']
 
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     session_pow_challenge = session + "_pow_challenge"
     if session_pow_challenge not in session_store:
       print 'UUID not in session'
@@ -133,9 +146,9 @@ def create():
 def update():
   validate_uuid = UUID(request.form['uuid'])
   uuid = str(validate_uuid)
-  session = ws.hashlib.sha256(SESSION_SECRET + uuid).hexdigest()
+  session = ws.hashlib.sha256(config.SESSION_SECRET + uuid).hexdigest()
 
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     session_challenge = session + "_challenge"
     session_pubkey = session + "_public_key"
 
@@ -200,9 +213,9 @@ def login():
   public_key = base64.b64decode(request.args.get('public_key').encode('UTF-8'))
   nonce = request.args.get('nonce')
 
-  session = ws.hashlib.sha256(SESSION_SECRET + uuid).hexdigest()
+  session = ws.hashlib.sha256(config.SESSION_SECRET + uuid).hexdigest()
 
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     session_pow_challenge = session + "_pow_challenge"
     if session_pow_challenge not in session_store:
       print 'UUID not in session'
@@ -253,7 +266,7 @@ def failed_challenge(pow_challenge, nonce, difficulty):
   return pow_challenge_response[-len(difficulty):] != difficulty
 
 def write_wallet(uuid, wallet, email=None):
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     filename = data_dir_root + '/wallets/' + uuid + '.json'
     with open(filename, 'w') as f:
       f.write(wallet)
@@ -264,7 +277,7 @@ def write_wallet(uuid, wallet, email=None):
     dbCommit()
     
 def read_wallet(uuid):
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     filename = data_dir_root + '/wallets/' + uuid + '.json'
     with open(filename, 'r') as f:
       return f.read()
@@ -285,7 +298,7 @@ def update_login(uuid):
    dbCommit()
 
 def exists(uuid):
-  if LOCALDEVBYPASSDB:
+  if config.LOCALDEVBYPASSDB:
     validate_uuid = UUID(uuid)
     filename = data_dir_root + '/wallets/' + uuid + '.json'
     return os.path.exists(filename)
